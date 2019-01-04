@@ -12,6 +12,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
@@ -40,6 +41,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
 public class AndroidCamera2Api extends AppCompatActivity {
     private static final String TAG = "AndroidCameraApi";
     private Button takePictureButton;
@@ -63,6 +65,9 @@ public class AndroidCamera2Api extends AppCompatActivity {
     private boolean mFlashSupported;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
+    private String mState = "PREVIEW";
+    private boolean areWeFocused = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -116,10 +121,45 @@ public class AndroidCamera2Api extends AppCompatActivity {
         }
     };
     final CameraCaptureSession.CaptureCallback captureCallbackListener = new CameraCaptureSession.CaptureCallback() {
+
+        private void process(CaptureResult result) {
+            Log.d("captureCallback", "***************** Entering PROCESS");
+
+            switch (mState) {
+                case "PREVIEW": {
+
+                    int afState = result.get(CaptureResult.CONTROL_AF_STATE);
+                    if (CaptureResult.CONTROL_AF_TRIGGER_START == afState) {
+                        if (areWeFocused) {
+
+                            Log.d("statePreview", "***************** areWeFocused: " + areWeFocused);
+
+                        }
+                    }
+                    areWeFocused = CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED == afState;
+                    Log.d("statePreview", "***************** areWeFocused: " + areWeFocused);
+                    mState = "";
+                    break;
+                }
+            }
+        }
+
         @Override
-        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+        public void onCaptureProgressed(CameraCaptureSession session, CaptureRequest request,
+                                        CaptureResult partialResult) {
+            Log.d("captureProgressed", "*********** GOT HERE");
+            process(partialResult);
+        }
+
+        @Override
+        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request,
+                                       TotalCaptureResult result) {
+            Log.d("captureCompleted", "*********** GOT HERE");
             super.onCaptureCompleted(session, request, result);
-            Toast.makeText(AndroidCamera2Api.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
+            Toast.makeText(AndroidCamera2Api.this, "Saved:" + file, Toast.LENGTH_SHORT)
+                    .show();
+
+            process(result);
             createCameraPreview();
         }
     };
@@ -201,10 +241,12 @@ public class AndroidCamera2Api extends AppCompatActivity {
             };
             reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
             final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
+
                 @Override
                 public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
                     super.onCaptureCompleted(session, request, result);
                     Toast.makeText(AndroidCamera2Api.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
+                    Log.d("captureProgressed", "*********** CAPTURE COMPLETED");
                     createCameraPreview();
                 }
             };
@@ -227,6 +269,8 @@ public class AndroidCamera2Api extends AppCompatActivity {
     }
     protected void createCameraPreview() {
         try {
+            Log.d("createPreview", "***************** Setting STATE to PREVIEW");
+            mState = "PREVIEW";
             SurfaceTexture texture = textureView.getSurfaceTexture();
             assert texture != null;
             texture.setDefaultBufferSize(imageDimension.getWidth(), imageDimension.getHeight());
@@ -256,6 +300,7 @@ public class AndroidCamera2Api extends AppCompatActivity {
     private void openCamera() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         Log.e(TAG, "is camera open");
+
         try {
             cameraId = manager.getCameraIdList()[0];
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
@@ -274,12 +319,44 @@ public class AndroidCamera2Api extends AppCompatActivity {
         Log.e(TAG, "openCamera X");
     }
     protected void updatePreview() {
+
+        final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
+            private void process(CaptureResult result) {
+                Log.d("captureCallback", "***************** ENTERING Capture Callback PROCESS()");
+
+                switch (mState) {
+                    case "PREVIEW": {
+
+                        int afState = result.get(CaptureResult.CONTROL_AF_STATE);
+                        if (CaptureResult.CONTROL_AF_TRIGGER_START == afState) {
+                            if (areWeFocused) {
+
+                                Log.d("statePreview", "***************** areWeFocused: " + areWeFocused);
+
+                            }
+                        }
+                        areWeFocused = CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED == afState;
+                        Log.d("statePreview", "***************** areWeFocused: " + areWeFocused);
+                        break;
+                    }
+                }
+            }
+
+            @Override
+            public void onCaptureProgressed(CameraCaptureSession session, CaptureRequest request,
+                                            CaptureResult partialResult) {
+                super.onCaptureProgressed(session, request, partialResult);
+                Log.d("captureProgressed", "*********** CAPTURE PROGRESSED");
+                process(partialResult);
+            }
+        };
+
         if(null == cameraDevice) {
             Log.e(TAG, "updatePreview error, return");
         }
         captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         try {
-            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
+            cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), captureListener, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
