@@ -11,3 +11,4 @@ CTestTestfile.cmake
 .idea/
 AndroidCamera2API/.idea/workspace.xml
 AndroidCamera2API/.idea/*
+Camera2Test/.idea/*
